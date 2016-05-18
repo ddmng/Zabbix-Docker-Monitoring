@@ -11,6 +11,22 @@ Please feel free to test and provide feedback/open issue.
 Module is focused on the performance, see section 
 [Module vs. UserParameter script](#module-vs-userparameter-script).
 
+Module is available as a Docker image as well. Quick start:
+
+```
+docker run \
+  --name=zabbix-agent-xxl \
+  -h $(hostname) \
+  -p 10050:10050 \
+  -v /:/rootfs \
+  -e "ZA_Server=<ZABBIX SERVER IP/DNS NAME>" \
+  -d monitoringartist/zabbix-agent-xxl-limited:latest
+```
+
+**Ubuntu/Debian users need also** `-v /var/run:/var/run`.
+
+Visit [Zabbix agent 3.0 XXL with Docker monitoring support](https://github.com/monitoringartist/zabbix-agent-xxl) for more information.
+
 Please donate to author, so he can continue to publish other awesome projects 
 for free:
 
@@ -42,7 +58,7 @@ Note: cid - container ID, two options are available:
 | Key | Description |
 | --- | ----------- |
 | **docker.discovery[\<par1\>,\<par2\>,\<par3\>]** | **LLD discovering:**<br>Only running containers are discovered.<br>[Additional Docker permissions](#additional-docker-permissions) are needed, when you want to see container name (human name) in metrics/graphs instead of short container ID. Optional parameters are used for definition of HCONTAINERID - docker.inspect function will be used in this case.<br>For example:<br>*docker.discovery[Config,Env,MESOS_TASK_ID=]* is recommended for Mesos monitoring<br>Note: *docker.discovery* is faster version of *docker.discovery[Name]* |  
-| **docker.mem[cid,mmetric]** | **Memory metrics:**<br>**mmetric** - any available memory metric in the pseudo-file memory.stat, e.g.: *cache, rss, mapped_file, pgpgin, pgpgout, swap, pgfault, pgmajfault, inactive_anon, active_anon, inactive_file, active_file, unevictable, hierarchical_memory_limit, hierarchical_memsw_limit, total_cache, total_rss, total_mapped_file, total_pgpgin, total_pgpgout, total_swap, total_pgfault, total_pgmajfault, total_inactive_anon, total_active_anon, total_inactive_file, total_active_file, total_unevictable* |
+| **docker.mem[cid,mmetric]** | **Memory metrics:**<br>**mmetric** - any available memory metric in the pseudo-file memory.stat, e.g.: *cache, rss, mapped_file, pgpgin, pgpgout, swap, pgfault, pgmajfault, inactive_anon, active_anon, inactive_file, active_file, unevictable, hierarchical_memory_limit, hierarchical_memsw_limit, total_cache, total_rss, total_mapped_file, total_pgpgin, total_pgpgout, total_swap, total_pgfault, total_pgmajfault, total_inactive_anon, total_active_anon, total_inactive_file, total_active_file, total_unevictable*, Note: if you have problem with memory metrics, be sure that memory cgroup subsystem is enabled - kernel parameter: *cgroup_enable=memory* |
 | **docker.cpu[cid,cmetric]** | **CPU metrics:**<br>**cmetric** - any available CPU metric in the pseudo-file cpuacct.stat, e.g.: *system, user*<br>Jiffy CPU counter is recalculated to % value by Zabbix. | 
 | **docker.dev[cid,bfile,bmetric]** | **Blk IO metrics:**<br>**bfile** - container blkio pseudo-file, e.g.: *blkio.io_merged, blkio.io_queued, blkio.io_service_bytes, blkio.io_serviced, blkio.io_service_time, blkio.io_wait_time, blkio.sectors, blkio.time, blkio.avg_queue_size, blkio.idle_time, blkio.dequeue, ...*<br>**bmetric** - any available blkio metric in selected pseudo-file, e.g.: *Total*. Option for selected block device only is also available e.g. *'8:0 Sync'* (quotes must be used in key parameter in this case)<br>Note: Some pseudo blkio files are available only if kernel config *CONFIG_DEBUG_BLK_CGROUP=y*, see recommended docs. |
 | **docker.inspect[cid,par1,\<par2\>,\<par3\>]** | **Docker inspection:**<br>Requested value from Docker inspect JSON object (e.g. [API v1.21](http://docs.docker.com/engine/reference/api/docker_remote_api_v1.21/#inspect-a-container)) is returned.<br>**par1** - name of 1st level JSON property<br>**par2** - optional name of 2nd level JSON property<br>**par3** - optional name of 3rd level JSON property or selector of item in the JSON array<br>For example:<br>*docker.inspect[cid,NetworkSettings,IPAddress], docker.inspect[cid,Config,Env,MESOS_TASK_ID=], docker.inspect[cid,State,StartedAt], docker.inspect[cid,Name]*<br>Note 1: Requested value must be plain text/numeric value. JSON objects and booleans are not supported.<br>Note 2: [Additional Docker permissions](#additional-docker-permissions) are needed.<br>Note 3: If you use selector for selecting value in array, then selector string is removed from returned value. |
@@ -68,7 +84,7 @@ Container log monitoring
 ========================
 
 [Standard Zabbix log monitoring]
-(https://www.zabbix.com/documentation/2.4/manual/config/items/itemtypes/log_items) 
+(https://www.zabbix.com/documentation/3.0/manual/config/items/itemtypes/log_items) 
 can be used. Keep in mind, that Zabbix agent must support active mode for log 
 monitoring. Stdout/stderr Docker container console output is logged by Docker 
 into file */var/lib/docker/containers/<fid>/<fid>-json.log*. If the application 
@@ -134,7 +150,7 @@ If you are on a system that have `SELinux` in enforcing-mode (check with `getenf
 
 *zabbix-docker.te*
 ```
-module zabbix-docker 1.0;
+module zabbix-docker 1.1;
 
 require {
         type docker_var_run_t;
@@ -142,11 +158,12 @@ require {
         type zabbix_agent_t;
         type docker_t;
         type cgroup_t;
+        type modules_object_t;
         class sock_file write;
         class unix_stream_socket connectto;
         class capability dac_override;
         class tcp_socket name_connect;
-        class file { ioctl read getattr lock open };
+        class file { ioctl read getattr lock open execute };
         class dir { ioctl read getattr lock add_name reparent search open };
 }
 
@@ -158,6 +175,7 @@ allow zabbix_agent_t self:capability dac_override;
 allow zabbix_agent_t unreserved_port_t:tcp_socket name_connect;
 allow zabbix_agent_t cgroup_t:file { ioctl read getattr lock open };
 allow zabbix_agent_t cgroup_t:dir { ioctl read getattr lock search open };
+allow zabbix_agent_t modules_object_t:file { read open execute };
 ```
 
 Save it, the run:
@@ -185,25 +203,24 @@ Remember to run `systemctl daemon-reload` when you are done editing it. The zabb
 Installation
 ============
 
-* Import provided template Zabbix-Template-App-Docker.xml.
+* Import provided template [Zabbix-Template-App-Docker.xml](https://raw.githubusercontent.com/monitoringartist/zabbix-docker-monitoring/master/template/Zabbix-Template-App-Docker.xml).
 * Configure your Zabbix agent(s) - load downloaded/compiled 
 zabbix_module_docker.so<br>
-https://www.zabbix.com/documentation/2.4/manual/config/items/loadablemodules
-
+https://www.zabbix.com/documentation/3.0/manual/config/items/loadablemodules
 
 Compilation
 ===========
 
 You have to compile module, if provided binary doesn't work on your system.
-Basic compilation steps:
+Basic compilation steps (please use right Zabbix branch version):
 
 ```
 # Required CentOS/RHEL tools: yum install -y wget autoconf automake gcc svn
 # Required Debian/Ubuntu tools: apt-get install -y wget autoconf automake gcc subversion make pkg-config
 cd ~
-mkdir zabbix24
-cd zabbix24
-svn co svn://svn.zabbix.com/branches/2.4 .
+mkdir zabbix30
+cd zabbix30
+svn co svn://svn.zabbix.com/branches/3.0 .
 ./bootstrap.sh
 ./configure --enable-agent
 mkdir src/modules/zabbix_module_docker
